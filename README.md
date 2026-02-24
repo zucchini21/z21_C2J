@@ -13,14 +13,16 @@ COBOLソースコードからJavaへのマイグレーションを、AIエージ
 ```
 .
 ├── cobol-spec-framework.md    # フレームワーク定義書
-├── EXECUTION_GUIDE.md         # 実行指示書（Step 1〜8）
-├── DEMO_GUIDE.md              # デモ用ガイド
+├── EXECUTION_GUIDE.md         # 実行指示書（Step 0〜8）
+├── DEMO_GUIDE.md              # デモ用ガイド（単一ソース向け）
 ├── demo/
-│   ├── teacher/               # 教師データ（過去PoCペア）
+│   ├── teacher/               # 教師データ（過去PoCペア、複数可）
 │   │   ├── INSCALC.cbl        # COBOLソース：保険料計算バッチ
 │   │   └── INSCALC_SPEC.md    # 対応する仕様書
-│   ├── input/                 # 新規インプット（ソースのみ）
-│   │   └── CONTRENW.cbl       # COBOLソース：契約更新バッチ
+│   ├── input/                 # 新規インプット
+│   │   ├── programs/          # メイン/サブプログラム
+│   │   │   └── CONTRENW.cbl   # COBOLソース：契約更新バッチ
+│   │   └── copybooks/         # COPY句（共通コピー句）
 │   └── holdout/               # 検証用正解（Step 8で使用）
 │       └── CONTRENW_SPEC.md   # 正解仕様書
 └── output/                    # 生成物の出力先
