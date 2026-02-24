@@ -3,6 +3,8 @@
       *================================================================*
       * 契約更新バッチプログラム
       * 満期到来契約を判定し、更新処理または満期通知を出力する
+      * COPY: CPYCONTR（契約マスタ共通レコードレイアウト）
+      * CALL: PREMCALC（保険料再計算サブプログラム）
       *================================================================*
        ENVIRONMENT DIVISION.
        INPUT-OUTPUT SECTION.
@@ -28,22 +30,7 @@
        FILE SECTION.
        FD  IN-CONTRACT-FILE.
        01  IN-CONTRACT-REC.
-           05  IC-CONTRACT-NO        PIC X(10).
-           05  IC-HOLDER-NAME        PIC N(20).
-           05  IC-PLAN-CODE          PIC X(3).
-           05  IC-START-DATE         PIC 9(8).
-           05  IC-END-DATE           PIC 9(8).
-           05  IC-TERM-YEARS         PIC 9(2).
-           05  IC-RENEW-TYPE         PIC X(1).
-               88  IC-AUTO-RENEW     VALUE 'A'.
-               88  IC-MANUAL-RENEW   VALUE 'M'.
-               88  IC-NO-RENEW       VALUE 'N'.
-           05  IC-PREMIUM-AMOUNT     PIC 9(7)V99.
-           05  IC-UNPAID-FLAG        PIC X(1).
-               88  IC-HAS-UNPAID     VALUE 'Y'.
-           05  IC-RENEW-COUNT        PIC 9(2).
-           05  IC-MAX-RENEW          PIC 9(2).
-           05  FILLER                PIC X(27).
+           COPY CPYCONTR.
 
        FD  OUT-RENEW-FILE.
        01  OUT-RENEW-REC.
@@ -104,7 +91,15 @@
 
        01  WS-CONSTANTS.
            05  WS-ADVANCE-DAYS       PIC 9(3) VALUE 060.
-           05  WS-PREMIUM-INCREASE   PIC 9(1)V9(4) VALUE 1.0300.
+
+      *    PREMCALC呼出用パラメータ
+       01  WS-PREMCALC-PARAMS.
+           05  WS-PM-RENEW-TYPE      PIC X(1).
+           05  WS-PM-CURRENT-PREMIUM PIC 9(7)V99.
+           05  WS-PM-PLAN-CODE       PIC X(3).
+           05  WS-PM-RENEW-COUNT     PIC 9(2).
+           05  WS-PM-NEW-PREMIUM     PIC 9(7)V99.
+           05  WS-PM-RETURN-CODE     PIC 9(2).
 
        PROCEDURE DIVISION.
        MAIN-PROCESS.
@@ -161,96 +156,115 @@
            PERFORM READ-CONTRACT.
 
        VALIDATE-CONTRACT.
-           IF IC-CONTRACT-NO = SPACES
+           IF CT-CONTRACT-NO = SPACES
                MOVE 'E001' TO ER-ERROR-CODE
                MOVE '契約番号が空白です' TO ER-ERROR-MSG
                PERFORM WRITE-ERROR
            END-IF.
-           IF IC-END-DATE < IC-START-DATE
-               MOVE IC-CONTRACT-NO TO ER-CONTRACT-NO
+           IF CT-END-DATE < CT-START-DATE
+               MOVE CT-CONTRACT-NO TO ER-CONTRACT-NO
                MOVE 'E002' TO ER-ERROR-CODE
                MOVE '終了日が開始日より前です' TO ER-ERROR-MSG
                PERFORM WRITE-ERROR
            END-IF.
 
        CHECK-EXPIRY.
-           IF IC-END-DATE > WS-CHECK-DATE
+           IF CT-END-DATE > WS-CHECK-DATE
                ADD 1 TO WS-SKIP-CNT
            ELSE
                EVALUATE TRUE
-                   WHEN IC-HAS-UNPAID
+                   WHEN CT-HAS-UNPAID
                        PERFORM WRITE-EXPIRE-UNPAID
-                   WHEN IC-NO-RENEW
+                   WHEN CT-NO-RENEW
                        PERFORM WRITE-EXPIRE-NO-RENEW
-                   WHEN IC-RENEW-COUNT >= IC-MAX-RENEW
+                   WHEN CT-RENEW-COUNT >= CT-MAX-RENEW
                        PERFORM WRITE-EXPIRE-MAX-RENEW
-                   WHEN IC-AUTO-RENEW
+                   WHEN CT-AUTO-RENEW
                        PERFORM PROCESS-AUTO-RENEW
-                   WHEN IC-MANUAL-RENEW
+                   WHEN CT-MANUAL-RENEW
                        PERFORM PROCESS-MANUAL-RENEW
                END-EVALUATE
            END-IF.
 
        PROCESS-AUTO-RENEW.
            PERFORM CALC-NEW-DATES.
-           MOVE IC-CONTRACT-NO      TO RN-CONTRACT-NO.
-           MOVE IC-HOLDER-NAME      TO RN-HOLDER-NAME.
-           MOVE IC-END-DATE         TO RN-OLD-END-DATE.
+           PERFORM CALC-PREMIUM.
+           MOVE CT-CONTRACT-NO      TO RN-CONTRACT-NO.
+           MOVE CT-HOLDER-NAME      TO RN-HOLDER-NAME.
+           MOVE CT-END-DATE         TO RN-OLD-END-DATE.
            MOVE WS-NEW-START        TO RN-NEW-START-DATE.
            MOVE WS-NEW-END          TO RN-NEW-END-DATE.
-           ADD 1 TO IC-RENEW-COUNT
+           ADD 1 TO CT-RENEW-COUNT
                GIVING RN-RENEW-COUNT.
-           COMPUTE RN-PREMIUM-AMOUNT =
-               IC-PREMIUM-AMOUNT * WS-PREMIUM-INCREASE.
+           MOVE WS-PM-NEW-PREMIUM   TO RN-PREMIUM-AMOUNT.
            MOVE 'A' TO RN-RENEW-TYPE.
            WRITE OUT-RENEW-REC.
            ADD 1 TO WS-RENEW-CNT.
 
        PROCESS-MANUAL-RENEW.
            PERFORM CALC-NEW-DATES.
-           MOVE IC-CONTRACT-NO      TO RN-CONTRACT-NO.
-           MOVE IC-HOLDER-NAME      TO RN-HOLDER-NAME.
-           MOVE IC-END-DATE         TO RN-OLD-END-DATE.
+           PERFORM CALC-PREMIUM.
+           MOVE CT-CONTRACT-NO      TO RN-CONTRACT-NO.
+           MOVE CT-HOLDER-NAME      TO RN-HOLDER-NAME.
+           MOVE CT-END-DATE         TO RN-OLD-END-DATE.
            MOVE WS-NEW-START        TO RN-NEW-START-DATE.
            MOVE WS-NEW-END          TO RN-NEW-END-DATE.
-           ADD 1 TO IC-RENEW-COUNT
+           ADD 1 TO CT-RENEW-COUNT
                GIVING RN-RENEW-COUNT.
-           MOVE IC-PREMIUM-AMOUNT   TO RN-PREMIUM-AMOUNT.
+           MOVE WS-PM-NEW-PREMIUM   TO RN-PREMIUM-AMOUNT.
            MOVE 'M' TO RN-RENEW-TYPE.
            WRITE OUT-RENEW-REC.
            ADD 1 TO WS-RENEW-CNT.
 
+       CALC-PREMIUM.
+           MOVE CT-RENEW-TYPE       TO WS-PM-RENEW-TYPE.
+           MOVE CT-PREMIUM-AMOUNT   TO WS-PM-CURRENT-PREMIUM.
+           MOVE CT-PLAN-CODE        TO WS-PM-PLAN-CODE.
+           MOVE CT-RENEW-COUNT      TO WS-PM-RENEW-COUNT.
+           CALL 'PREMCALC' USING WS-PM-RENEW-TYPE
+                                   WS-PM-CURRENT-PREMIUM
+                                   WS-PM-PLAN-CODE
+                                   WS-PM-RENEW-COUNT
+                                   WS-PM-NEW-PREMIUM
+                                   WS-PM-RETURN-CODE.
+           IF WS-PM-RETURN-CODE NOT = ZERO
+               MOVE CT-CONTRACT-NO TO ER-CONTRACT-NO
+               MOVE 'E003' TO ER-ERROR-CODE
+               MOVE '保険料計算エラー' TO ER-ERROR-MSG
+               PERFORM WRITE-ERROR
+           END-IF.
+
        CALC-NEW-DATES.
-           MOVE IC-END-DATE TO WS-NEW-START.
-           MOVE IC-END-DATE(1:4) TO WS-WORK-YEAR.
-           ADD IC-TERM-YEARS TO WS-WORK-YEAR.
+           MOVE CT-END-DATE TO WS-NEW-START.
+           MOVE CT-END-DATE(1:4) TO WS-WORK-YEAR.
+           ADD CT-TERM-YEARS TO WS-WORK-YEAR.
            STRING WS-WORK-YEAR
-                  IC-END-DATE(5:4)
+                  CT-END-DATE(5:4)
                DELIMITED BY SIZE
                INTO WS-NEW-END.
 
        WRITE-EXPIRE-UNPAID.
-           MOVE IC-CONTRACT-NO  TO EX-CONTRACT-NO.
-           MOVE IC-HOLDER-NAME  TO EX-HOLDER-NAME.
-           MOVE IC-END-DATE     TO EX-END-DATE.
+           MOVE CT-CONTRACT-NO  TO EX-CONTRACT-NO.
+           MOVE CT-HOLDER-NAME  TO EX-HOLDER-NAME.
+           MOVE CT-END-DATE     TO EX-END-DATE.
            MOVE 'UP' TO EX-EXPIRE-REASON.
            MOVE '未払い保険料あり - 更新不可' TO EX-EXPIRE-MSG.
            WRITE OUT-EXPIRE-REC.
            ADD 1 TO WS-EXPIRE-CNT.
 
        WRITE-EXPIRE-NO-RENEW.
-           MOVE IC-CONTRACT-NO  TO EX-CONTRACT-NO.
-           MOVE IC-HOLDER-NAME  TO EX-HOLDER-NAME.
-           MOVE IC-END-DATE     TO EX-END-DATE.
+           MOVE CT-CONTRACT-NO  TO EX-CONTRACT-NO.
+           MOVE CT-HOLDER-NAME  TO EX-HOLDER-NAME.
+           MOVE CT-END-DATE     TO EX-END-DATE.
            MOVE 'NR' TO EX-EXPIRE-REASON.
            MOVE '更新不可契約（契約者意思）' TO EX-EXPIRE-MSG.
            WRITE OUT-EXPIRE-REC.
            ADD 1 TO WS-EXPIRE-CNT.
 
        WRITE-EXPIRE-MAX-RENEW.
-           MOVE IC-CONTRACT-NO  TO EX-CONTRACT-NO.
-           MOVE IC-HOLDER-NAME  TO EX-HOLDER-NAME.
-           MOVE IC-END-DATE     TO EX-END-DATE.
+           MOVE CT-CONTRACT-NO  TO EX-CONTRACT-NO.
+           MOVE CT-HOLDER-NAME  TO EX-HOLDER-NAME.
+           MOVE CT-END-DATE     TO EX-END-DATE.
            MOVE 'MX' TO EX-EXPIRE-REASON.
            MOVE '最大更新回数到達' TO EX-EXPIRE-MSG.
            WRITE OUT-EXPIRE-REC.
@@ -258,7 +272,7 @@
 
        WRITE-ERROR.
            SET WS-HAS-ERROR TO TRUE.
-           MOVE IC-CONTRACT-NO TO ER-CONTRACT-NO.
+           MOVE CT-CONTRACT-NO TO ER-CONTRACT-NO.
            WRITE OUT-ERROR-REC.
            ADD 1 TO WS-ERROR-CNT.
 
