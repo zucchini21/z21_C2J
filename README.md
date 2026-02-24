@@ -14,7 +14,7 @@ COBOLソースコードからJavaへのマイグレーションを、AIエージ
 .
 ├── cobol-spec-framework.md    # フレームワーク定義書
 ├── EXECUTION_GUIDE.md         # 実行指示書（Step 0〜8）
-├── DEMO_GUIDE.md              # デモ用ガイド（単一ソース向け）
+├── DEMO_GUIDE.md              # デモ用ガイド（複数ソース対応）
 ├── demo/
 │   ├── teacher/               # 教師データ（過去PoCペア、複数可）
 │   │   ├── INSCALC.cbl        # COBOLソース：保険料計算バッチ
